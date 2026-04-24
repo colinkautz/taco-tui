@@ -19,6 +19,10 @@ type fetchMenuMsg struct {
 	categories []MenuCategory
 }
 
+type menuErrorMsg struct {
+	err error
+}
+
 var tabBorder = lipgloss.Border{
 	Top:         "─",
 	Bottom:      " ",
@@ -91,6 +95,9 @@ var (
 	searchLabelStyle = lipgloss.NewStyle().
 				Foreground(tbMuted)
 
+	searchQueryStyle = lipgloss.NewStyle().
+				Foreground(tbOffWhite)
+
 	noResultsStyle = lipgloss.NewStyle().
 			Foreground(tbMuted).
 			MarginTop(1)
@@ -125,6 +132,7 @@ type menuModel struct {
 	filtering   bool
 	filterQuery string
 	topHeight   int
+	err         string
 }
 
 func newMenuModel(storeNumber string) *menuModel {
@@ -136,7 +144,7 @@ func newMenuModel(storeNumber string) *menuModel {
 		spinner:     s,
 		state:       menuLoading,
 		storeNumber: storeNumber,
-		cart:        NewCart(),
+		cart:        newCart(),
 	}
 }
 
@@ -149,7 +157,11 @@ func (m *menuModel) Init() tea.Cmd {
 
 func fetchMenuCmd(storeNumber string) tea.Cmd {
 	return func() tea.Msg {
-		return fetchMenuMsg{categories: fetchMenu(storeNumber)}
+		categories, fetchErr := fetchMenu(storeNumber)
+		if fetchErr != nil {
+			return menuErrorMsg{err: fetchErr}
+		}
+		return fetchMenuMsg{categories: categories}
 	}
 }
 
@@ -185,12 +197,13 @@ func (m *menuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case fetchMenuMsg:
-		if len(msg.categories) == 0 {
-			m.state = menuError
-			return m, nil
-		}
 		m.categories = msg.categories
 		m.state = menuReady
+		return m, nil
+
+	case menuErrorMsg:
+		m.state = menuError
+		m.err = msg.err.Error()
 		return m, nil
 
 	case spinner.TickMsg:
@@ -284,7 +297,7 @@ func (m *menuModel) View() tea.View {
 	case menuLoading:
 		return tea.NewView(fmt.Sprintf("\n\n  %s loading menu...\n\n", m.spinner.View()))
 	case menuError:
-		return tea.NewView("\n\n  ❌ failed to load menu\n\n  press q to quit\n")
+		return tea.NewView(fmt.Sprintf("\n\n  ❌ %s\n\n  press q to quit\n", m.err))
 	}
 
 	menuWidth := m.width - cartWidth - 2
@@ -313,9 +326,7 @@ func (m *menuModel) View() tea.View {
 		left = left + strings.Repeat("\n", remaining)
 	}
 
-	left = lipgloss.NewStyle().
-		Width(menuWidth).
-		Render(left)
+	left = lipgloss.NewStyle().Width(menuWidth).Render(left)
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", cart)
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, content, help))
@@ -324,7 +335,7 @@ func (m *menuModel) View() tea.View {
 func (m *menuModel) renderSearchBox(width int) string {
 	cursor := "█"
 	query := m.filterQuery + cursor
-	inner := searchLabelStyle.Render("search: ") + lipgloss.NewStyle().Foreground(tbOffWhite).Render(query)
+	inner := searchLabelStyle.Render("search: ") + searchQueryStyle.Render(query)
 	return searchBoxStyle.Width(width - 2).Render(inner)
 }
 
@@ -434,15 +445,21 @@ func (m *menuModel) tabLayout(width int) ([]string, int) {
 	prevWidth := lipgloss.Width(prevIndicator)
 	nextWidth := lipgloss.Width(nextIndicator)
 
-	adjustedOffset := m.tabOffset
-	for {
-		used := 0
-		if adjustedOffset > 0 {
-			used += prevWidth
+	// fitTabs computes which tabs are visible starting from offset and returns
+	// the rendered tab slice and the index of the last visible tab.
+	fitTabs := func(offset int) ([]string, int) {
+		var tabs []string
+		if offset > 0 {
+			tabs = append(tabs, prevIndicator)
 		}
 
-		lastVisible := adjustedOffset - 1
-		for i := adjustedOffset; i < len(m.categories); i++ {
+		used := 0
+		if offset > 0 {
+			used = prevWidth
+		}
+
+		lastVisible := offset
+		for i := offset; i < len(m.categories); i++ {
 			tab := renderTabLabel(m.categories[i].Name, i == m.activeTab)
 			tabWidth := lipgloss.Width(tab)
 			trailingWidth := 0
@@ -450,53 +467,33 @@ func (m *menuModel) tabLayout(width int) ([]string, int) {
 				trailingWidth = nextWidth
 			}
 
-			if (used+tabWidth+trailingWidth > width) && i > adjustedOffset {
+			if used+tabWidth+trailingWidth > width && i > offset {
 				break
 			}
 
 			used += tabWidth
 			lastVisible = i
+			tabs = append(tabs, tab)
 		}
 
+		if lastVisible < len(m.categories)-1 {
+			tabs = append(tabs, nextIndicator)
+		}
+
+		return tabs, lastVisible
+	}
+
+	// Advance offset until the active tab is visible.
+	adjustedOffset := m.tabOffset
+	for {
+		_, lastVisible := fitTabs(adjustedOffset)
 		if m.activeTab <= lastVisible {
 			break
 		}
-
 		adjustedOffset++
 	}
 
-	var tabs []string
-	if adjustedOffset > 0 {
-		tabs = append(tabs, prevIndicator)
-	}
-
-	used := 0
-	if adjustedOffset > 0 {
-		used = prevWidth
-	}
-
-	lastVisible := adjustedOffset
-	for i := adjustedOffset; i < len(m.categories); i++ {
-		tab := renderTabLabel(m.categories[i].Name, i == m.activeTab)
-		tabWidth := lipgloss.Width(tab)
-		trailingWidth := 0
-		if i < len(m.categories)-1 {
-			trailingWidth = nextWidth
-		}
-
-		if used+tabWidth+trailingWidth > width && i > adjustedOffset {
-			break
-		}
-
-		used += tabWidth
-		lastVisible = i
-		tabs = append(tabs, tab)
-	}
-
-	if lastVisible < len(m.categories)-1 {
-		tabs = append(tabs, nextIndicator)
-	}
-
+	tabs, _ := fitTabs(adjustedOffset)
 	return tabs, adjustedOffset
 }
 
@@ -542,30 +539,9 @@ func wrapText(s string, width int) []string {
 }
 
 func (m *menuModel) renderCartItem(entry *CartItem) string {
-	nameLines := wrapText(entry.Item.Name, cartNameWidth)
-	qty := fmt.Sprintf("x%d", entry.Quantity)
 	price := fmt.Sprintf("$%.2f", entry.Item.Price*float64(entry.Quantity))
-
-	qtyCell := lipgloss.NewStyle().
-		Width(cartQtyWidth).
-		Align(lipgloss.Right).
-		Render(dimItemStyle.Render(qty))
-
-	var lines []string
-	for i, nameLine := range nameLines {
-		if i == 0 {
-			lines = append(lines, fmt.Sprintf("%-*s %s",
-				cartNameWidth,
-				nameLine,
-				qtyCell,
-			))
-			continue
-		}
-		lines = append(lines, nameLine)
-	}
-
-	lines = append(lines, itemPriceStyle.Render(price))
-	return strings.Join(lines, "\n")
+	nameQtyRow := renderItemRow(entry, cartNameWidth, cartQtyWidth, 0, normalItemStyle, dimItemStyle, lipgloss.NewStyle())
+	return strings.Join([]string{nameQtyRow, itemPriceStyle.Render(price)}, "\n")
 }
 
 func (m *menuModel) renderCart(height int) string {

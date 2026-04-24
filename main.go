@@ -18,6 +18,13 @@ const (
 	screenReceipt
 )
 
+const (
+	receiptNameWidth  = 28
+	receiptQtyWidth   = 4
+	receiptPriceWidth = 10
+	receiptLineWidth  = receiptNameWidth + receiptQtyWidth + receiptPriceWidth
+)
+
 var (
 	receiptBorderStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
@@ -59,8 +66,12 @@ var (
 				Foreground(tbOffWhite)
 
 	zipErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF6B6B")).
+			Foreground(tbError).
 			MarginTop(1)
+
+	centerStyle = lipgloss.NewStyle().
+			Align(lipgloss.Center).
+			AlignVertical(lipgloss.Center)
 )
 
 type zipInputModel struct {
@@ -124,13 +135,7 @@ func (z zipInputModel) render(width, height int) string {
 
 	window := zipWindowStyle.Render(strings.Join(lines, "\n"))
 
-	outer := lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Align(lipgloss.Center).
-		AlignVertical(lipgloss.Center)
-
-	return outer.Render(window)
+	return centerStyle.Width(width).Height(height).Render(window)
 }
 
 type foundZipMsg struct {
@@ -144,7 +149,7 @@ type appModel struct {
 	width, height   int
 	zipModel        zipInputModel
 	zip             string
-	storeModel      storeListModel
+	storeModel      *storeListModel
 	storeModelReady bool
 	menuModel       *menuModel
 	menuModelReady  bool
@@ -189,7 +194,10 @@ func (m *appModel) startStoreSearch(zip string) tea.Cmd {
 	return tea.Batch(
 		m.storeModel.Init(),
 		func() tea.Msg {
-			lat, long := lookupZip(zip)
+			lat, long, fetchErr := lookupZip(zip)
+			if fetchErr != nil {
+				return storeErrorMsg{err: fetchErr}
+			}
 			return foundZipMsg{zip: zip, lat: lat, long: long}
 		},
 	)
@@ -220,7 +228,7 @@ func (m *appModel) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screenStores:
 		updated, cmd := m.storeModel.Update(msg)
-		m.storeModel = updated.(storeListModel)
+		m.storeModel = updated.(*storeListModel)
 		return m, cmd
 
 	case screenMenu:
@@ -308,46 +316,16 @@ func (m *appModel) receiptView() tea.View {
 		return tea.NewView("")
 	}
 
-	const (
-		receiptNameWidth  = 28
-		receiptQtyWidth   = 4
-		receiptPriceWidth = 10
-		receiptLineWidth  = receiptNameWidth + receiptQtyWidth + receiptPriceWidth
-	)
-
 	var lines []string
 	lines = append(lines, receiptTitleStyle.Render("🌮 Your Order"))
 	lines = append(lines, "")
 
 	for _, entry := range m.finalCart.Items() {
-		nameLines := wrapText(entry.Item.Name, receiptNameWidth)
-		qty := fmt.Sprintf("x%d", entry.Quantity)
-		price := fmt.Sprintf("$%.2f", entry.Item.Price*float64(entry.Quantity))
-
-		qtyCell := lipgloss.NewStyle().
-			Width(receiptQtyWidth).
-			Align(lipgloss.Right).
-			Render(receiptDimStyle.Render(qty))
-
-		priceCell := lipgloss.NewStyle().
-			Width(receiptPriceWidth).
-			Align(lipgloss.Right).
-			Render(price)
-
-		for i, nameLine := range nameLines {
-			if i == 0 {
-				line := fmt.Sprintf("%-*s %s %s",
-					receiptNameWidth,
-					nameLine,
-					qtyCell,
-					priceCell,
-				)
-				lines = append(lines, receiptItemStyle.Render(line))
-				continue
-			}
-
-			lines = append(lines, receiptItemStyle.Render(nameLine))
-		}
+		lines = append(lines, renderItemRow(
+			entry,
+			receiptNameWidth, receiptQtyWidth, receiptPriceWidth,
+			receiptItemStyle, receiptDimStyle, receiptItemStyle,
+		))
 	}
 
 	lines = append(lines, strings.Repeat("─", receiptLineWidth))
@@ -364,13 +342,7 @@ func (m *appModel) receiptView() tea.View {
 
 	content := strings.Join(lines, "\n")
 
-	outer := lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height).
-		Align(lipgloss.Center).
-		AlignVertical(lipgloss.Center)
-
-	v := tea.NewView(outer.Render(receiptBorderStyle.Render(content)))
+	v := tea.NewView(centerStyle.Width(m.width).Height(m.height).Render(receiptBorderStyle.Render(content)))
 	v.AltScreen = true
 	return v
 }

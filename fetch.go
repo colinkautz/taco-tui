@@ -7,6 +7,32 @@ import (
 	"strings"
 )
 
+type FetchErrorKind int
+
+const (
+	FetchErrNetwork FetchErrorKind = iota
+	FetchErrParse
+	FetchErrEmpty
+)
+
+type FetchError struct {
+	Kind    FetchErrorKind
+	Wrapped error
+}
+
+func (e *FetchError) Error() string {
+	switch e.Kind {
+	case FetchErrNetwork:
+		return fmt.Sprintf("network error: %v", e.Wrapped)
+	case FetchErrParse:
+		return fmt.Sprintf("unexpected response from server: %v", e.Wrapped)
+	case FetchErrEmpty:
+		return "no results found"
+	default:
+		return "unknown error"
+	}
+}
+
 type Store struct {
 	Name        string
 	StoreNumber string
@@ -36,12 +62,12 @@ func (s Store) FilterValue() string {
 	return s.Name
 }
 
-func fetchStores(lat, long float64) []Store {
+func fetchStores(lat, long float64) ([]Store, *FetchError) {
 	url := fmt.Sprintf("https://www.tacobell.com/tacobellwebservices/v4/tacobell/stores?latitude=%f&longitude=%f", lat, long)
 	res, err := http.Get(url)
 
 	if err != nil {
-		return nil
+		return nil, &FetchError{Kind: FetchErrNetwork, Wrapped: err}
 	}
 	defer res.Body.Close()
 
@@ -59,7 +85,7 @@ func fetchStores(lat, long float64) []Store {
 	}
 
 	if jsonErr := json.NewDecoder(res.Body).Decode(&data); jsonErr != nil {
-		return nil
+		return nil, &FetchError{Kind: FetchErrParse, Wrapped: jsonErr}
 	}
 
 	stores := make([]Store, 0, len(data.NearByStores))
@@ -70,15 +96,20 @@ func fetchStores(lat, long float64) []Store {
 			StoreNumber: store.StoreNumber,
 		})
 	}
-	return stores
+
+	if len(stores) == 0 {
+		return nil, &FetchError{Kind: FetchErrEmpty}
+	}
+
+	return stores, nil
 }
 
-func fetchMenu(storeNumber string) []MenuCategory {
+func fetchMenu(storeNumber string) ([]MenuCategory, *FetchError) {
 	url := fmt.Sprintf("https://www.tacobell.com/tacobellwebservices/v4/tacobell/products/menu/%s", storeNumber)
 	res, err := http.Get(url)
 
 	if err != nil {
-		return nil
+		return nil, &FetchError{Kind: FetchErrNetwork, Wrapped: err}
 	}
 	defer res.Body.Close()
 
@@ -97,7 +128,7 @@ func fetchMenu(storeNumber string) []MenuCategory {
 	}
 
 	if jsonErr := json.NewDecoder(res.Body).Decode(&data); jsonErr != nil {
-		return nil
+		return nil, &FetchError{Kind: FetchErrParse, Wrapped: jsonErr}
 	}
 
 	categories := make([]MenuCategory, 0, len(data.MenuProductCategories))
@@ -124,19 +155,24 @@ func fetchMenu(storeNumber string) []MenuCategory {
 			Items:     items,
 		})
 	}
-	return categories
+
+	if len(categories) == 0 {
+		return nil, &FetchError{Kind: FetchErrEmpty}
+	}
+
+	return categories, nil
 }
 
-func lookupZip(zip string) (float64, float64) {
+func lookupZip(zip string) (float64, float64, *FetchError) {
 	if len(zip) < 5 {
-		return 0, 0
+		return 0, 0, &FetchError{Kind: FetchErrEmpty}
 	}
 
 	url := fmt.Sprintf("https://niiknow.github.io/zipcode-us/db/%s/%s.json", zip[:2], zip[:5])
 	resp, err := http.Get(url)
 
 	if err != nil {
-		return 0, 0
+		return 0, 0, &FetchError{Kind: FetchErrNetwork, Wrapped: err}
 	}
 	defer resp.Body.Close()
 
@@ -146,8 +182,12 @@ func lookupZip(zip string) (float64, float64) {
 	}
 
 	if jsonErr := json.NewDecoder(resp.Body).Decode(&data); jsonErr != nil {
-		return 0, 0
+		return 0, 0, &FetchError{Kind: FetchErrParse, Wrapped: jsonErr}
 	}
 
-	return data.Lat, data.Long
+	if data.Lat == 0 && data.Long == 0 {
+		return 0, 0, &FetchError{Kind: FetchErrEmpty}
+	}
+
+	return data.Lat, data.Long, nil
 }

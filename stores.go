@@ -50,10 +50,10 @@ type fetchStoresMsg struct {
 	stores []Store
 }
 
-func newStoreListModel(zip string) storeListModel {
+func newStoreListModel(zip string) *storeListModel {
 	s := spinner.New()
 	s.Spinner = spinner.Moon
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Style = lipgloss.NewStyle().Foreground(tbPurple)
 
 	delegate := list.NewDefaultDelegate()
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
@@ -79,7 +79,7 @@ func newStoreListModel(zip string) storeListModel {
 	l.SetFilteringEnabled(true)
 	l.SetShowHelp(true)
 
-	return storeListModel{
+	return &storeListModel{
 		list:    l,
 		spinner: s,
 		state:   storeListLoading,
@@ -87,24 +87,27 @@ func newStoreListModel(zip string) storeListModel {
 	}
 }
 
-func (m storeListModel) Init() tea.Cmd {
+func (m *storeListModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
 func fetchStoresCmd(lat, long float64) tea.Cmd {
 	return func() tea.Msg {
-		stores := fetchStores(lat, long)
+		stores, fetchErr := fetchStores(lat, long)
+		if fetchErr != nil {
+			return storeErrorMsg{err: fetchErr}
+		}
 		return fetchStoresMsg{stores: stores}
 	}
 }
 
-func (m storeListModel) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *storeListModel) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
 }
 
-func (m storeListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *storeListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -113,12 +116,6 @@ func (m storeListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchStoresMsg:
-		if len(msg.stores) == 0 {
-			m.state = storeListError
-			m.err = fmt.Sprintf("no Taco Bell locations found near %s", m.zip)
-			return m, nil
-		}
-
 		items := make([]list.Item, len(msg.stores))
 		for i, s := range msg.stores {
 			items[i] = s
@@ -131,7 +128,12 @@ func (m storeListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case storeErrorMsg:
 		m.state = storeListError
-		m.err = msg.err.Error()
+		fetchErr, ok := msg.err.(*FetchError)
+		if ok && fetchErr.Kind == FetchErrEmpty {
+			m.err = fmt.Sprintf("no Taco Bell locations found near %s", m.zip)
+		} else {
+			m.err = msg.err.Error()
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -215,7 +217,7 @@ func (m storeListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m storeListModel) View() tea.View {
+func (m *storeListModel) View() tea.View {
 	switch m.state {
 	case storeListLoading:
 		return tea.NewView(fmt.Sprintf("\n\n  %s finding stores near %s...\n\n", m.spinner.View(), m.zip))

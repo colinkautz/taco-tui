@@ -12,7 +12,7 @@ type Cart struct {
 	order []string
 }
 
-func NewCart() *Cart {
+func newCart() *Cart {
 	return &Cart{
 		items: make(map[string]*CartItem),
 	}

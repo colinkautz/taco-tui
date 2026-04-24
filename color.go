@@ -9,4 +9,5 @@ var (
 	tbMuted       = lipgloss.Color("#8B7A96") // muted purple-grey for secondary text
 	tbDim         = lipgloss.Color("#5C4D66") // dim purple-grey for hints/help text
 	tbGreen       = lipgloss.Color("#78C67A") // kept for prices/totals — complements purple
+	tbError       = lipgloss.Color("#FF6B6B") // error red
 )
