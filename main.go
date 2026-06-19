@@ -281,10 +281,12 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenMenu && m.menuModelReady {
 			switch msg.String() {
 			case "esc":
-				m.screen = screenStores
-				m.menuModel = nil
-				m.menuModelReady = false
-				return m, nil
+				if !m.menuModel.filtering {
+					m.screen = screenStores
+					m.menuModel = nil
+					m.menuModelReady = false
+					return m, nil
+				}
 			}
 		}
 	}
