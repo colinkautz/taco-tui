@@ -19,7 +19,7 @@ const (
 )
 
 const (
-	receiptNameWidth  = 28
+	receiptNameWidth  = 38
 	receiptQtyWidth   = 4
 	receiptPriceWidth = 10
 	receiptLineWidth  = receiptNameWidth + receiptQtyWidth + receiptPriceWidth
@@ -29,7 +29,7 @@ var (
 	receiptBorderStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(tbPurple).
-				Padding(1, 3).Width(50)
+				Padding(1, 3).Width(60)
 
 	receiptTitleStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -203,9 +203,9 @@ func (m *appModel) startStoreSearch(zip string) tea.Cmd {
 	)
 }
 
-func (m *appModel) openMenu(storeNumber string) tea.Cmd {
+func (m *appModel) openMenu(storeNumber, storeAddress string) tea.Cmd {
 	m.screen = screenMenu
-	m.menuModel = newMenuModel(storeNumber)
+	m.menuModel = newMenuModel(storeNumber, storeAddress)
 	m.menuModelReady = true
 	m.menuModel.width = m.width
 	m.menuModel.height = m.height
@@ -253,7 +253,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, fetchStoresCmd(msg.lat, msg.long)
 
 	case storeSelectedMsg:
-		return m, m.openMenu(msg.store.StoreNumber)
+		return m, m.openMenu(msg.store.StoreNumber, msg.store.Name)
 
 	case orderPlacedMsg:
 		m.screen = screenReceipt
@@ -267,8 +267,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "n":
 				m.screen = screenZip
-				m.zipModel = zipInputModel{}
-				m.zip = ""
+				m.zipModel = zipInputModel{value: m.zip}
 				m.storeModelReady = false
 				m.menuModelReady = false
 				m.menuModel = nil

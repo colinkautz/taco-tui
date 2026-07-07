@@ -12,7 +12,11 @@ func renderItemRow(
 	nameW, qtyW, priceW int,
 	nameStyle, qtyStyle, priceStyle lipgloss.Style,
 ) string {
-	nameLines := wrapText(entry.Item.Name, nameW)
+	name := entry.Item.Name
+	if lipgloss.Width(name) > nameW {
+		name = truncateWords(name, nameW)
+	}
+	nameLines := []string{name}
 	qty := fmt.Sprintf("x%d", entry.Quantity)
 	price := fmt.Sprintf("$%.2f", entry.Item.Price*float64(entry.Quantity))
 
@@ -33,4 +37,39 @@ func renderItemRow(
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func truncateWords(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxLen {
+		return s
+	}
+
+	targetLen := maxLen - 1
+	words := strings.Fields(s)
+	var result string
+
+	for _, word := range words {
+		temp := result
+		if temp != "" {
+			temp += " "
+		}
+		temp += word
+
+		if lipgloss.Width(temp) > targetLen {
+			if result != "" {
+				return result + "…"
+			}
+			// Fallback to hard truncate if even first word is too long
+			runes := []rune(s)
+			if len(runes) > targetLen {
+				return string(runes[:targetLen]) + "…"
+			}
+			return s
+		}
+		result = temp
+	}
+	return result
 }

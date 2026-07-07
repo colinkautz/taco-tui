@@ -81,13 +81,26 @@ func (m *menuModel) handleFilteringKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *menuModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirming {
+		switch msg.String() {
+		case "y":
+			m.confirming = false
+			return m, func() tea.Msg {
+				return orderPlacedMsg{cart: m.cart}
+			}
+		case "n", "esc":
+			m.confirming = false
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "/":
 		m.filtering = true
 		m.filterQuery = ""
 		m.cursor = 0
 
-	case ",":
+	case "shift+tab":
 		if m.activeTab > 0 {
 			m.activeTab--
 			m.cursor = 0
@@ -96,7 +109,7 @@ func (m *menuModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case ".":
+	case "tab":
 		if m.activeTab < len(m.categories)-1 {
 			m.activeTab++
 			m.cursor = 0
@@ -127,9 +140,7 @@ func (m *menuModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "c":
 		if !m.cart.IsEmpty() {
-			return m, func() tea.Msg {
-				return orderPlacedMsg{cart: m.cart}
-			}
+			m.confirming = true
 		}
 	}
 

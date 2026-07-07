@@ -119,32 +119,35 @@ const (
 )
 
 type menuModel struct {
-	categories  []MenuCategory
-	activeTab   int
-	tabOffset   int
-	cursor      int
-	cart        *Cart
-	spinner     spinner.Model
-	state       menuState
-	storeNumber string
-	width       int
-	height      int
-	filtering   bool
-	filterQuery string
-	topHeight   int
-	err         string
+	categories   []MenuCategory
+	activeTab    int
+	tabOffset    int
+	cursor       int
+	cart         *Cart
+	spinner      spinner.Model
+	state        menuState
+	storeNumber  string
+	storeAddress string
+	width        int
+	height       int
+	filtering    bool
+	filterQuery  string
+	topHeight    int
+	err          string
+	confirming   bool
 }
 
-func newMenuModel(storeNumber string) *menuModel {
+func newMenuModel(storeNumber, storeAddress string) *menuModel {
 	s := spinner.New()
 	s.Spinner = spinner.Moon
 	s.Style = lipgloss.NewStyle().Foreground(tbPurple)
 
 	return &menuModel{
-		spinner:     s,
-		state:       menuLoading,
-		storeNumber: storeNumber,
-		cart:        newCart(),
+		spinner:      s,
+		state:        menuLoading,
+		storeNumber:  storeNumber,
+		storeAddress: storeAddress,
+		cart:         newCart(),
 	}
 }
 
@@ -305,13 +308,15 @@ func (m *menuModel) View() tea.View {
 	helpHeight := lipgloss.Height(help)
 
 	var top, items string
+	storeHeader := dimItemStyle.Render("Store " + m.storeNumber + " - " + m.storeAddress)
 	if m.filtering {
 		top = m.renderSearchBox(menuWidth)
 		m.topHeight = lipgloss.Height(top)
 		contentHeight := m.height - m.topHeight - helpHeight - 1
 		items = m.renderFilterResults(menuWidth, contentHeight)
 	} else {
-		top = m.renderTabs(menuWidth)
+		tabs := m.renderTabs(menuWidth)
+		top = lipgloss.JoinVertical(lipgloss.Left, storeHeader, tabs)
 		m.topHeight = lipgloss.Height(top)
 		contentHeight := m.height - m.topHeight - helpHeight - 1
 		items = m.renderItems(menuWidth, contentHeight)
@@ -365,7 +370,7 @@ func (m *menuModel) visibleRange(total, height int) (int, int) {
 	return start, end
 }
 
-func (m *menuModel) renderItemLine(name string, price float64, active bool, width int) string {
+func (m *menuModel) renderItemLine(name string, price float64, active bool, qty int, width int) string {
 	if width <= 0 {
 		return ""
 	}
@@ -389,9 +394,14 @@ func (m *menuModel) renderItemLine(name string, price float64, active bool, widt
 
 	row := selector + nameCell + strings.Repeat(" ", gapWidth) + priceCell
 
-	if active {
+	switch {
+	case active && qty > 0:
+		row = lipgloss.NewStyle().Foreground(tbGreen).Bold(true).Render(row)
+	case active:
 		row = selectedItemStyle.Render(row)
-	} else {
+	case qty > 0:
+		row = lipgloss.NewStyle().Foreground(tbGreen).Render(row)
+	default:
 		row = normalItemStyle.Render(row)
 	}
 
@@ -407,7 +417,11 @@ func (m *menuModel) renderRows(items []MenuItem, width, height int, emptyMessage
 	var rows []string
 
 	for i := start; i < end; i++ {
-		rows = append(rows, m.renderItemLine(items[i].Name, items[i].Price, i == m.cursor, width))
+		qty := 0
+		if entry, ok := m.cart.items[items[i].ProductID]; ok {
+			qty = entry.Quantity
+		}
+		rows = append(rows, m.renderItemLine(items[i].Name, items[i].Price, i == m.cursor, qty, width))
 	}
 
 	if len(items) > end-start {
@@ -511,33 +525,6 @@ func (m *menuModel) renderItems(width, height int) string {
 	return m.renderRows(m.currentItems(), width, height, "  no items in this category")
 }
 
-func wrapText(s string, width int) []string {
-	if width <= 0 {
-		return []string{""}
-	}
-
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{""}
-	}
-
-	var lines []string
-	line := words[0]
-
-	for _, word := range words[1:] {
-		next := line + " " + word
-		if lipgloss.Width(next) <= width {
-			line = next
-			continue
-		}
-		lines = append(lines, line)
-		line = word
-	}
-
-	lines = append(lines, line)
-	return lines
-}
-
 func (m *menuModel) renderCartItem(entry *CartItem) string {
 	price := fmt.Sprintf("$%.2f", entry.Item.Price*float64(entry.Quantity))
 	nameQtyRow := renderItemRow(entry, cartNameWidth, cartQtyWidth, 0, normalItemStyle, dimItemStyle, lipgloss.NewStyle())
@@ -564,6 +551,12 @@ func (m *menuModel) renderCart(height int) string {
 }
 
 func (m *menuModel) renderHelp() string {
+	if m.confirming {
+		return helpStyle.Render(strings.Join([]string{
+			"confirm order? y yes",
+			"n no",
+		}, "  ·  "))
+	}
 	if m.filtering {
 		return helpStyle.Render(strings.Join([]string{
 			"↑/↓ navigate",
@@ -572,7 +565,7 @@ func (m *menuModel) renderHelp() string {
 		}, "  ·  "))
 	}
 	return helpStyle.Render(strings.Join([]string{
-		",/. category",
+		"tab/shift+tab category",
 		"↑/↓ item",
 		"←/→ qty",
 		"/ search",
