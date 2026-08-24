@@ -4,7 +4,7 @@ A Taco Bell order simulator ran in your terminal, expanding on what I
 learned from the [burrito index program](https://github.com/colinkautz/burrito-index) I wrote.
 
 ### Requirements
-- Go 1.26+
+- Go 1.27+
 - A love for Taco Bell
 
 ### Instructions
